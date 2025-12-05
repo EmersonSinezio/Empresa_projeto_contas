@@ -595,15 +595,62 @@ class ContaManagerGUI extends JFrame {
         int modelRow = table.convertRowIndexToModel(sel);
         Contas conta = listaAtual.get(modelRow);
         
-        String ativ = JOptionPane.showInputDialog(this, "Número da Atividade:");
-        if (ativ != null) {
+        // --- FORMULÁRIO DE LANÇAMENTO ---
+        JTextField txtAtividade = new JTextField(String.valueOf(conta.getAtividade() != 0 ? conta.getAtividade() : ""));
+        JTextField txtValorBoleto = new JTextField(String.valueOf(conta.getValorBoleto()).replace(".", ","));
+        
+        JDateChooser dateFaturamento = new JDateChooser();
+        dateFaturamento.setDateFormatString("dd/MM/yyyy");
+        // Tenta preencher se já existir
+        try {
+            if (conta.getDataFaturamento() != null && !conta.getDataFaturamento().isEmpty()) {
+                dateFaturamento.setDate(dateFormatDB.parse(conta.getDataFaturamento()));
+            }
+        } catch (Exception ignored) {}
+
+        JDateChooser dateLancamento = new JDateChooser();
+        dateLancamento.setDateFormatString("dd/MM/yyyy");
+        // Preenche com data atual por padrão
+        dateLancamento.setDate(new Date());
+
+        JPanel panel = new JPanel(new GridBagLayout());
+        panel.setPreferredSize(new Dimension(400, 200));
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.insets = new Insets(5, 5, 5, 5);
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+
+        addFormRow(panel, gbc, 0, "Atividade:", txtAtividade, true);
+        addFormRow(panel, gbc, 1, "Valor Boleto:", txtValorBoleto, true);
+        addFormRow(panel, gbc, 2, "Data Faturamento:", dateFaturamento, false);
+        addFormRow(panel, gbc, 3, "Data Lançamento:", dateLancamento, true);
+
+        int result = JOptionPane.showConfirmDialog(this, panel, 
+                "Lançar Conta", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+
+        if (result == JOptionPane.OK_OPTION) {
             try {
-                conta.setAtividade(Integer.parseInt(ativ));
+                // Validação básica
+                if (txtAtividade.getText().trim().isEmpty()) throw new Exception("Atividade obrigatória.");
+                
+                conta.setAtividade(Integer.parseInt(txtAtividade.getText().trim()));
+                conta.setValorBoleto(Double.parseDouble(txtValorBoleto.getText().replace(",", ".")));
+                
+                if (dateFaturamento.getDate() != null) {
+                    conta.setDataFaturamento(dateFormatDB.format(dateFaturamento.getDate()));
+                }
+                
+                // Se usuário não escolheu data, usa a data atual (que já vem setada no componente, mas garantindo)
+                Date dataLanc = dateLancamento.getDate();
+                if (dataLanc == null) dataLanc = new Date();
+                conta.setDataLancada(dateFormatDB.format(dataLanc));
+
                 conta.setLancada(true);
                 contaRepo.atualizarConta(conta);
                 refreshTable(contaRepo.listarTodas());
+                JOptionPane.showMessageDialog(this, "Conta lançada com sucesso!");
+                
             } catch(Exception ex) {
-                JOptionPane.showMessageDialog(this, "Erro numérico.");
+                JOptionPane.showMessageDialog(this, "Erro ao lançar: " + ex.getMessage());
             }
         }
     }
