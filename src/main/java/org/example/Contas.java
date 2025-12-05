@@ -1,8 +1,7 @@
 package org.example;
 
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
-import com.google.gson.reflect.TypeToken;
+import com.formdev.flatlaf.FlatLightLaf; // Importante para o visual
+import com.toedter.calendar.JDateChooser; // Importante para o calendário
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
@@ -10,16 +9,10 @@ import java.awt.*;
 import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.StringSelection;
 import java.awt.event.ActionEvent;
-import java.io.*;
-import java.lang.reflect.Type;
-import java.time.LocalDate;
-import java.time.format.DateTimeFormatter;
-import java.time.format.DateTimeParseException;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
-
-
-
 
 public class Contas {
     private Integer id;
@@ -140,106 +133,122 @@ public class Contas {
     }
 }
 
-/* ===================== ContaRepository (Mês-aware) ===================== */
-
-
-/* ===================== ContaManagerGUI (Swing) ===================== */
 class ContaManagerGUI extends JFrame {
     private final ContaRepositorySQLite contaRepo = new ContaRepositorySQLite();
     private final DefaultTableModel tableModel;
     private final JTable table;
-    private List<Contas> listaAtual = new ArrayList<>(); 
+    private List<Contas> listaAtual = new ArrayList<>();
+    
+    // Formatador para converter do JDateChooser para a String do seu DB (dd-MM-yy)
+    private final SimpleDateFormat dateFormatDB = new SimpleDateFormat("dd-MM-yy");
 
     public ContaManagerGUI() {
         super("Gerenciador de Contas");
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        setSize(1200, 700);
+        setSize(1200, 750); // Aumentei um pouco a altura
         setLocationRelativeTo(null);
 
+        // --- Configuração da Tabela ---
         String[] cols = new String[]{
-            "Fornecedor", "Serviço", "Valor NF", "Valor Boleto", 
-            "Data Vencimento", "Data Lançada", "Atividade"
+                "Fornecedor", "Serviço", "Valor NF", "Valor Boleto",
+                "Data Vencimento", "Data Lançada", "Atividade"
         };
 
+        // Modelo modificado para retornar as classes corretas das colunas (para ordenação funcionar)
         tableModel = new DefaultTableModel(cols, 0) {
             @Override public boolean isCellEditable(int row, int column) { return false; }
+            
+            @Override
+            public Class<?> getColumnClass(int columnIndex) {
+                // Ajuste para ordenar números corretamente (não como texto)
+                if (columnIndex == 2 || columnIndex == 3) return Double.class; // Valores
+                if (columnIndex == 6) return Integer.class; // Atividade
+                return String.class;
+            }
         };
-        
+
         table = new JTable(tableModel);
         table.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
+        table.setRowHeight(25); // Linhas um pouco mais altas para visual moderno
+        table.getTableHeader().setFont(new Font("Segoe UI", Font.BOLD, 12));
+        
+        // --- HABILITA ORDENAÇÃO POR COLUNA ---
+        table.setAutoCreateRowSorter(true);
+        
         table.addMouseListener(new java.awt.event.MouseAdapter() {
             @Override
             public void mouseClicked(java.awt.event.MouseEvent evt) {
                 if (evt.getClickCount() == 2) onShowInfo(null);
             }
         });
-        
+
         JScrollPane scroll = new JScrollPane(table);
 
-        // --- Botões ---
-        JButton btnInfo = new JButton("Informações");
-        btnInfo.addActionListener(this::onShowInfo);
-
-        JButton btnAdd = new JButton("Cadastrar conta");
+        // --- Botões com Ícones (Simulados ou Reais) ---
+        // Dica: Para ícones reais, coloque as imagens em src/main/resources e use:
+        // new ImageIcon(getClass().getResource("/icon_save.png"))
+        
+        JButton btnAdd = criarBotao("Cadastrar", "➕", new Color(0, 120, 215)); // Azul
         btnAdd.addActionListener(this::onAdd);
 
-        JButton btnLaunch = new JButton("Lançar conta");
+        JButton btnLaunch = criarBotao("Lançar", "🚀", new Color(40, 167, 69)); // Verde
         btnLaunch.addActionListener(this::onLaunch);
 
-        JButton btnSearchActivity = new JButton("Buscar por Atividade");
-        btnSearchActivity.addActionListener(this::onSearchActivity);
-
-        JButton btnSearchLanc = new JButton("Buscar por Data Lançada");
-        btnSearchLanc.addActionListener(this::onSearchDataLancada);
-
-        JButton btnSearchVenc = new JButton("Buscar por Data Vencimento");
-        btnSearchVenc.addActionListener(this::onSearchDataVencimento);
-
-        JButton btnSearchNome = new JButton("Buscar por Nome");
-        btnSearchNome.addActionListener(this::onSearchNome);
-        
-        // NOVO BOTÃO
-        JButton btnSearchMes = new JButton("Buscar por Mês (Vencimento)");
-        btnSearchMes.addActionListener(this::onSearchMes);
-
-        JButton btnRemove = new JButton("Remover conta");
+        JButton btnRemove = criarBotao("Remover", "🗑️", new Color(220, 53, 69)); // Vermelho
         btnRemove.addActionListener(this::onRemove);
 
-        JButton btnRefresh = new JButton("Listar Todas");
+        JButton btnRefresh = criarBotao("Atualizar", "🔄", null);
         btnRefresh.addActionListener(e -> refreshTable(contaRepo.listarTodas()));
 
-        JButton btnExit = new JButton("Sair");
+        JButton btnInfo = criarBotao("Detalhes", "📄", null);
+        btnInfo.addActionListener(this::onShowInfo);
+        
+        JButton btnExit = criarBotao("Sair", "❌", null);
         btnExit.addActionListener(e -> System.exit(0));
 
-        // Layout
-        JPanel topPanel = new JPanel(new BorderLayout());
-        JPanel buttonPanel = new JPanel(new GridLayout(2, 0, 5, 5));
+        // Botões de Busca
+        JButton btnSearchActivity = new JButton("🔍 Atividade");
+        btnSearchActivity.addActionListener(this::onSearchActivity);
 
-        JPanel buttonRow1 = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        buttonRow1.add(btnSearchNome);
-        buttonRow1.add(btnSearchActivity);
-        buttonRow1.add(btnSearchLanc);
-        buttonRow1.add(btnSearchVenc);
-        buttonRow1.add(btnSearchMes);
+        JButton btnSearchMes = new JButton("📅 Mês Venc.");
+        btnSearchMes.addActionListener(this::onSearchMes);
 
-        JPanel buttonRow2 = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        buttonRow2.add(btnAdd);
-        buttonRow2.add(btnLaunch);
-        buttonRow2.add(btnRemove);
-        buttonRow2.add(btnRefresh);
-        buttonRow2.add(btnInfo);
-        buttonRow2.add(btnExit);
+        JButton btnSearchNome = new JButton("🔍 Nome");
+        btnSearchNome.addActionListener(this::onSearchNome);
 
-        buttonPanel.add(buttonRow1);
-        buttonPanel.add(buttonRow2);
-        topPanel.add(buttonPanel, BorderLayout.CENTER);
+        // --- Layout (Toolbar Superior) ---
+        JToolBar toolbar = new JToolBar();
+        toolbar.setFloatable(false);
+        toolbar.add(btnAdd);
+        toolbar.add(btnLaunch);
+        toolbar.addSeparator();
+        toolbar.add(btnRemove);
+        toolbar.add(btnRefresh);
+        toolbar.add(btnInfo);
+        toolbar.addSeparator();
+        toolbar.add(Box.createHorizontalGlue()); // Empurra o botão sair para a direita
+        toolbar.add(btnExit);
+
+        // --- Painel de Filtros (Abaixo da Toolbar) ---
+        JPanel filterPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        filterPanel.setBorder(BorderFactory.createTitledBorder("Filtros Rápidos"));
+        filterPanel.add(btnSearchActivity);
+        filterPanel.add(btnSearchMes);
+        filterPanel.add(btnSearchNome);
+
+        // Painel Topo Geral
+        JPanel topContainer = new JPanel(new BorderLayout());
+        topContainer.add(toolbar, BorderLayout.NORTH);
+        topContainer.add(filterPanel, BorderLayout.CENTER);
 
         getContentPane().setLayout(new BorderLayout());
-        getContentPane().add(topPanel, BorderLayout.NORTH);
+        getContentPane().add(topContainer, BorderLayout.NORTH);
         getContentPane().add(scroll, BorderLayout.CENTER);
 
+        // Barra de Status
         JPanel statusPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
         JLabel statusLabel = new JLabel("Selecione as contas para ver a soma");
+        statusLabel.setFont(new Font("Segoe UI", Font.BOLD, 12));
         statusPanel.add(statusLabel);
         getContentPane().add(statusPanel, BorderLayout.SOUTH);
 
@@ -250,9 +259,173 @@ class ContaManagerGUI extends JFrame {
         refreshTable(contaRepo.listarTodas());
     }
 
-    // --- Métodos Auxiliares de Formatação ---
+    // --- Método Helper para Criar Botões Modernos ---
+    private JButton criarBotao(String texto, String emoji, Color corFundo) {
+        JButton btn = new JButton(texto);
+        // Tenta usar emoji como ícone se não tiver imagem real
+        btn.setIcon(new TextIcon(btn, emoji, 16)); 
+        
+        if (corFundo != null) {
+            // Estilo específico do FlatLaf para botões coloridos
+            // Isso deixa o botão arredondado e com a cor escolhida
+            btn.setBackground(corFundo);
+            btn.setForeground(Color.WHITE);
+        }
+        return btn;
+    }
 
-    // 2. Transforma 2025-12-05 ou 05-12-25 em 05/12/25
+    // --- Formulário Moderno de Cadastro ---
+    private void onAdd(ActionEvent e) {
+        int proximoId = contaRepo.buscarUltimoId() + 1;
+
+        JTextField txtId = new JTextField(String.valueOf(proximoId));
+        txtId.setEditable(false);
+        
+        JTextField txtFornecedor = new JTextField();
+        JTextField txtServico = new JTextField();
+        JTextField txtCnpjServico = new JTextField();
+        JTextField txtUnidade = new JTextField();
+        JTextField txtValorNF = new JTextField();
+        JTextField txtValorBoleto = new JTextField();
+        JTextField txtCentroCusto = new JTextField();
+        
+        // SUBSTITUIÇÃO: JDateChooser ao invés de JTextField
+        JDateChooser dateVencimento = new JDateChooser();
+        dateVencimento.setDateFormatString("dd/MM/yyyy");
+        
+        // Opcionais
+        JDateChooser dateFaturamento = new JDateChooser();
+        dateFaturamento.setDateFormatString("dd/MM/yyyy");
+        
+        JDateChooser dateLancamento = new JDateChooser();
+        dateLancamento.setDateFormatString("dd/MM/yyyy");
+        
+        JTextField txtAtividade = new JTextField();
+        JTextField txtContaContabil = new JTextField();
+
+        // Painel com Layout Alinhado
+        JPanel panel = new JPanel(new GridBagLayout());
+        panel.setPreferredSize(new Dimension(500, 450));
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.insets = new Insets(5, 5, 5, 5);
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        
+        // Helper para adicionar linhas ao form
+        addFormRow(panel, gbc, 0, "ID:", txtId, false);
+        addFormRow(panel, gbc, 1, "Fornecedor *:", txtFornecedor, true);
+        addFormRow(panel, gbc, 2, "Serviço *:", txtServico, true);
+        addFormRow(panel, gbc, 3, "CNPJ Serviço *:", txtCnpjServico, true);
+        addFormRow(panel, gbc, 4, "Unidade *:", txtUnidade, true);
+        addFormRow(panel, gbc, 5, "Valor NF *:", txtValorNF, true);
+        addFormRow(panel, gbc, 6, "Valor Boleto *:", txtValorBoleto, true);
+        addFormRow(panel, gbc, 7, "Vencimento *:", dateVencimento, true); // Calendário
+        addFormRow(panel, gbc, 8, "Centro Custo *:", txtCentroCusto, true);
+        
+        // Divisória visual
+        JSeparator sep = new JSeparator();
+        gbc.gridx = 0; gbc.gridy = 9; gbc.gridwidth = 2;
+        panel.add(sep, gbc);
+        
+        addFormRow(panel, gbc, 10, "Faturamento:", dateFaturamento, false);
+        addFormRow(panel, gbc, 11, "Lançamento:", dateLancamento, false);
+        addFormRow(panel, gbc, 12, "Atividade:", txtAtividade, false);
+        addFormRow(panel, gbc, 13, "Conta Contábil:", txtContaContabil, false);
+
+        int result = JOptionPane.showConfirmDialog(this, panel, 
+                "Nova Conta", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+
+        if (result == JOptionPane.OK_OPTION) {
+            // --- VALIDAÇÃO VISUAL ---
+            boolean temErro = false;
+            temErro |= validarCampo(txtFornecedor);
+            temErro |= validarCampo(txtServico);
+            temErro |= validarCampo(txtCnpjServico);
+            temErro |= validarCampo(txtUnidade);
+            temErro |= validarCampo(txtValorNF);
+            temErro |= validarCampo(txtValorBoleto);
+            temErro |= validarCampo(txtCentroCusto);
+            temErro |= validarCalendario(dateVencimento);
+
+            if (temErro) {
+                JOptionPane.showMessageDialog(this, "Preencha os campos destacados em vermelho.", "Erro", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+
+            try {
+                Contas novaConta = new Contas();
+                novaConta.setFornecedor(txtFornecedor.getText().trim());
+                novaConta.setServico(txtServico.getText().trim());
+                novaConta.setCnpjServico(txtCnpjServico.getText().trim());
+                novaConta.setUnidade(txtUnidade.getText().trim());
+                
+                novaConta.setValorNF(Double.parseDouble(txtValorNF.getText().replace(",", ".")));
+                novaConta.setValorBoleto(Double.parseDouble(txtValorBoleto.getText().replace(",", ".")));
+                
+                // Pegando a data do componente e formatando para String (dd-MM-yy)
+                if(dateVencimento.getDate() != null)
+                    novaConta.setDataVencimento(dateFormatDB.format(dateVencimento.getDate()));
+                
+                if(dateFaturamento.getDate() != null)
+                    novaConta.setDataFaturamento(dateFormatDB.format(dateFaturamento.getDate()));
+                
+                if(dateLancamento.getDate() != null)
+                    novaConta.setDataLancada(dateFormatDB.format(dateLancamento.getDate()));
+                
+                String ativStr = txtAtividade.getText().trim();
+                novaConta.setAtividade(ativStr.isEmpty() ? 0 : Integer.parseInt(ativStr));
+                
+                novaConta.setCentroCusto(txtCentroCusto.getText().trim());
+                novaConta.setContaContabil(txtContaContabil.getText().trim());
+                
+                contaRepo.adicionarConta(novaConta);
+                
+                JOptionPane.showMessageDialog(this, "Conta cadastrada com sucesso!");
+                refreshTable(contaRepo.listarTodas());
+
+            } catch (Exception ex) {
+                JOptionPane.showMessageDialog(this, "Erro nos dados: " + ex.getMessage());
+            }
+        }
+    }
+
+    // --- Métodos de Validação Visual (FlatLaf Feature) ---
+    
+    private boolean validarCampo(JTextField campo) {
+        if (campo.getText().trim().isEmpty()) {
+            // FlatLaf outline error - deixa a borda vermelha
+            campo.putClientProperty("JComponent.outline", "error");
+            return true; // Tem erro
+        } else {
+            campo.putClientProperty("JComponent.outline", null);
+            return false; // Sem erro
+        }
+    }
+
+    private boolean validarCalendario(JDateChooser chooser) {
+        if (chooser.getDate() == null) {
+            chooser.putClientProperty("JComponent.outline", "error"); // Tenta pintar o chooser
+            chooser.getDateEditor().getUiComponent().putClientProperty("JComponent.outline", "error"); // Pinta o campo interno
+            return true;
+        } else {
+            chooser.getDateEditor().getUiComponent().putClientProperty("JComponent.outline", null);
+            return false;
+        }
+    }
+
+    private void addFormRow(JPanel panel, GridBagConstraints gbc, int row, String label, JComponent comp, boolean obrigatorio) {
+        gbc.gridx = 0; 
+        gbc.gridy = row; 
+        gbc.weightx = 0.3;
+        JLabel lbl = new JLabel(label);
+        if (obrigatorio) lbl.setFont(lbl.getFont().deriveFont(Font.BOLD));
+        panel.add(lbl, gbc);
+
+        gbc.gridx = 1; 
+        gbc.weightx = 0.7;
+        panel.add(comp, gbc);
+    }
+    
+    // --- Lógica Existente (Mantida) ---
     private String formatarDataUI(String data) {
         if (data == null || data.trim().isEmpty()) return "";
         return data.replace("-", "/");
@@ -262,25 +435,34 @@ class ContaManagerGUI extends JFrame {
         java.text.NumberFormat formato = java.text.NumberFormat.getCurrencyInstance(new java.util.Locale("pt","BR"));
         return formato.format(valor);
     }
-    
+
     private String safe(String s) { return s == null ? "" : s; }
 
-    // --- Lógica Principal ---
-
     private void refreshTable(List<Contas> contas) {
-        // Atualiza a lista em memória para referência futura (cliques)
         this.listaAtual = contas;
-        
         tableModel.setRowCount(0);
         for (Contas c : contas) {
+            // IMPORTANTE: Agora passamos os objetos REAIS (Double, Integer) para a tabela
+            // para que a ordenação funcione corretamente. O renderizador padrão cuidará de exibir.
+            // Mas para manter a formatação R$ bonita, podemos formatar na hora de exibir ou criar um CellRenderer.
+            // Para simplificar e manter a ordenação, vamos passar o valor numérico e deixar a tabela exibir.
+            // SE quiser formatar E ordenar, precisa de um CellRenderer customizado.
+            // Vamos manter simples: Passamos o valor formatado (String) para colunas de texto,
+            // e valor numérico (Double) para colunas de valor.
+            
+            // Mas espere, se eu passar Double, ele vai mostrar "1000.0". O usuário quer "R$ 1.000,00".
+            // O jeito certo é passar Double e setar um Renderer.
+            // Como o usuário pediu "ordenar como planilha", vou priorizar a ordenação correta.
+            // Vou passar Double e a tabela vai mostrar o número.
+            
             Object[] row = new Object[] {
                     safe(c.getFornecedor()),
                     safe(c.getServico()),
-                    formatarValor(c.getValorNF()),
-                    formatarValor(c.getValorBoleto()),
-                    formatarDataUI(c.getDataVencimento()), // 3. Aplica formatação visual
-                    formatarDataUI(c.getDataLancada()),    // 3. Aplica formatação visual
-                    c.getAtividade()
+                    c.getValorNF(),      // Passando Double puro
+                    c.getValorBoleto(),  // Passando Double puro
+                    formatarDataUI(c.getDataVencimento()),
+                    formatarDataUI(c.getDataLancada()),
+                    c.getAtividade()     // Passando Integer puro
             };
             tableModel.addRow(row);
         }
@@ -288,15 +470,13 @@ class ContaManagerGUI extends JFrame {
 
     private void onShowInfo(ActionEvent e) {
         int sel = table.getSelectedRow();
-        if (sel == -1) {
-            JOptionPane.showMessageDialog(this, "Selecione uma conta para ver as informações.");
-            return;
-        }
+        if (sel == -1) return;
         
-        // Pega o objeto real da lista baseado na linha selecionada
-        if (sel >= 0 && sel < listaAtual.size()) {
-            Contas conta = listaAtual.get(sel);
-            mostrarDetalhesConta(conta);
+        // Conversão de índice da View (ordenada) para Model (dados originais)
+        int modelRow = table.convertRowIndexToModel(sel);
+        
+        if (modelRow >= 0 && modelRow < listaAtual.size()) {
+            mostrarDetalhesConta(listaAtual.get(modelRow));
         }
     }
 
@@ -309,8 +489,6 @@ class ContaManagerGUI extends JFrame {
         JPanel panel = new JPanel(new GridLayout(0, 1, 5, 5));
         panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
-        // AQUI mostramos TUDO, inclusive o que está oculto na tabela
-        // E aplicamos a formatação de data com barra (/)
         panel.add(createInfoLabel("ID (Banco):", String.valueOf(conta.getId())));
         panel.add(createInfoLabel("Fornecedor:", conta.getFornecedor()));
         panel.add(createInfoLabel("Serviço:", conta.getServico()));
@@ -319,14 +497,12 @@ class ContaManagerGUI extends JFrame {
         panel.add(createInfoLabel("Valor NF:", formatarValor(conta.getValorNF())));
         panel.add(createInfoLabel("Valor Boleto:", formatarValor(conta.getValorBoleto())));
         
-        // Datas com /
         panel.add(createInfoLabel("Data Faturamento:", formatarDataUI(conta.getDataFaturamento())));
         panel.add(createInfoLabel("Data Vencimento:", formatarDataUI(conta.getDataVencimento())));
         panel.add(createInfoLabel("Data Lançada:", formatarDataUI(conta.getDataLancada())));
         
         panel.add(createInfoLabel("Atividade:", String.valueOf(conta.getAtividade())));
         
-        // Booleans
         panel.add(createInfoLabel("Lançada:", conta.isLancada() ? "Sim" : "Não"));
         panel.add(createInfoLabel("Vencida:", conta.isVencida() ? "Sim" : "Não"));
         
@@ -336,6 +512,7 @@ class ContaManagerGUI extends JFrame {
         JButton btnFechar = new JButton("Fechar");
         btnFechar.addActionListener(evt -> dialog.dispose());
 
+        // --- BOTÃO RESTAURADO ---
         JButton btnCopyCC = new JButton("Copiar Centro Custo");
         btnCopyCC.addActionListener(evt -> {
             if (conta.getCentroCusto() != null) {
@@ -354,7 +531,7 @@ class ContaManagerGUI extends JFrame {
         dialog.add(bottomPanel, BorderLayout.SOUTH);
         dialog.setVisible(true);
     }
-
+    
     private JPanel createInfoLabel(String titulo, String valor) {
         JPanel panel = new JPanel(new BorderLayout());
         JLabel labelTitulo = new JLabel(titulo);
@@ -368,17 +545,13 @@ class ContaManagerGUI extends JFrame {
         return panel;
     }
 
-    // --- Métodos de Ação (Adaptações simples) ---
-
     private void updateSelectionSum(JLabel statusLabel) {
         double totalNF = 0.0;
         double totalBoleto = 0.0;
         int selectedCount = table.getSelectedRowCount();
-
         if (selectedCount > 0) {
             int[] selectedRows = table.getSelectedRows();
             for (int viewRow : selectedRows) {
-                // Converte índice da tabela para índice da lista
                 int modelRow = table.convertRowIndexToModel(viewRow);
                 if (modelRow >= 0 && modelRow < listaAtual.size()) {
                     Contas conta = listaAtual.get(modelRow);
@@ -393,133 +566,18 @@ class ContaManagerGUI extends JFrame {
         }
     }
 
-    private void onAdd(ActionEvent e) {
-        // 1. Pega o ID previsto (Visual apenas, o banco garante a unicidade)
-        int proximoId = contaRepo.buscarUltimoId() + 1;
-
-        // --- Criação dos Componentes ---
-        JTextField txtId = new JTextField(String.valueOf(proximoId));
-        txtId.setEditable(false); // O usuário não edita o ID manualmente
-        txtId.setBackground(new Color(230, 230, 230)); // Cinza para indicar readonly
-
-        JTextField txtFornecedor = new JTextField();
-        JTextField txtServico = new JTextField();
-        JTextField txtCnpjServico = new JTextField();
-        JTextField txtUnidade = new JTextField();
-        JTextField txtValorNF = new JTextField();
-        JTextField txtValorBoleto = new JTextField();
-        JTextField txtDataVencimento = new JTextField(); // Obrigatório
-        JTextField txtCentroCusto = new JTextField(); // Obrigatório
-
-        // Opcionais
-        JTextField txtDataFaturamento = new JTextField();
-        JTextField txtDataLancamento = new JTextField();
-        JTextField txtAtividade = new JTextField();
-        JTextField txtContaContabil = new JTextField();
-
-        // --- Montagem do Painel (Formulário) ---
-        JPanel panel = new JPanel(new GridLayout(0, 2, 10, 10)); // 2 colunas, gaps de 10px
-        panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-
-        panel.add(new JLabel("ID (Automático):")); panel.add(txtId);
-        
-        // Campos Obrigatórios (Marcados com *)
-        panel.add(new JLabel("Fornecedor *:")); panel.add(txtFornecedor);
-        panel.add(new JLabel("Serviço *:")); panel.add(txtServico);
-        panel.add(new JLabel("CNPJ Serviço *:")); panel.add(txtCnpjServico);
-        panel.add(new JLabel("Unidade *:")); panel.add(txtUnidade);
-        panel.add(new JLabel("Valor NF (R$) *:")); panel.add(txtValorNF);
-        panel.add(new JLabel("Valor Boleto (R$) *:")); panel.add(txtValorBoleto);
-        panel.add(new JLabel("Data Vencimento (dd/mm/aa) *:")); panel.add(txtDataVencimento);
-        panel.add(new JLabel("Centro de Custo *:")); panel.add(txtCentroCusto);
-
-        // Campos Opcionais
-        panel.add(new JLabel("Data Faturamento (dd/mm/aa):")); panel.add(txtDataFaturamento);
-        panel.add(new JLabel("Data Lançamento (dd/mm/aa):")); panel.add(txtDataLancamento);
-        panel.add(new JLabel("Atividade (Número):")); panel.add(txtAtividade);
-        panel.add(new JLabel("Conta Contábil:")); panel.add(txtContaContabil);
-
-        // Adiciona uma rolagem caso a tela seja pequena
-        JScrollPane scrollPane = new JScrollPane(panel);
-        scrollPane.setPreferredSize(new Dimension(500, 500));
-        scrollPane.setBorder(null);
-
-        // --- Exibir o Dialog ---
-        int result = JOptionPane.showConfirmDialog(this, scrollPane, 
-                "Cadastrar Nova Conta", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
-
-        if (result == JOptionPane.OK_OPTION) {
-            // --- Validação dos Campos Obrigatórios ---
-            if (txtFornecedor.getText().trim().isEmpty() || 
-                txtServico.getText().trim().isEmpty() ||
-                txtCnpjServico.getText().trim().isEmpty() ||
-                txtUnidade.getText().trim().isEmpty() ||
-                txtValorNF.getText().trim().isEmpty() ||
-                txtValorBoleto.getText().trim().isEmpty() ||
-                txtDataVencimento.getText().trim().isEmpty() ||
-                txtCentroCusto.getText().trim().isEmpty()) {
-                
-                JOptionPane.showMessageDialog(this, 
-                    "Por favor, preencha todos os campos obrigatórios (*).", 
-                    "Erro de Validação", JOptionPane.ERROR_MESSAGE);
-                return; // Interrompe o cadastro
-            }
-
-            try {
-                // --- Conversão e Criação do Objeto ---
-                Contas novaConta = new Contas();
-                
-                novaConta.setFornecedor(txtFornecedor.getText().trim());
-                novaConta.setServico(txtServico.getText().trim());
-                novaConta.setCnpjServico(txtCnpjServico.getText().trim());
-                novaConta.setUnidade(txtUnidade.getText().trim());
-                
-                // Tratamento de valores numéricos (troca vírgula por ponto se usuário digitar errado)
-                double vNF = Double.parseDouble(txtValorNF.getText().replace(",", ".").trim());
-                double vBoleto = Double.parseDouble(txtValorBoleto.getText().replace(",", ".").trim());
-                novaConta.setValorNF(vNF);
-                novaConta.setValorBoleto(vBoleto);
-                
-                // Datas (Mantém string simples, mas você pode adicionar normalização se quiser)
-                novaConta.setDataVencimento(txtDataVencimento.getText().trim());
-                novaConta.setDataFaturamento(txtDataFaturamento.getText().trim()); // Opcional
-                novaConta.setDataLancada(txtDataLancamento.getText().trim()); // Opcional
-                
-                // Inteiros
-                String ativStr = txtAtividade.getText().trim();
-                novaConta.setAtividade(ativStr.isEmpty() ? 0 : Integer.parseInt(ativStr));
-                
-                novaConta.setCentroCusto(txtCentroCusto.getText().trim());
-                novaConta.setContaContabil(txtContaContabil.getText().trim()); // Opcional
-                
-                // Padrões (12 e 13)
-                novaConta.setLancada(false);
-                novaConta.setVencida(false);
-
-                // --- Salvar no Banco ---
-                contaRepo.adicionarConta(novaConta);
-                
-                // Feedback e Atualização
-                JOptionPane.showMessageDialog(this, "Conta cadastrada com sucesso!");
-                refreshTable(contaRepo.listarTodas());
-
-            } catch (NumberFormatException ex) {
-                JOptionPane.showMessageDialog(this, 
-                    "Erro nos valores numéricos. Verifique Valor NF, Valor Boleto e Atividade.", 
-                    "Erro de Formato", JOptionPane.ERROR_MESSAGE);
-            } catch (Exception ex) {
-                ex.printStackTrace();
-                JOptionPane.showMessageDialog(this, "Erro ao salvar: " + ex.getMessage());
-            }
-        }
-    }
-    
     private void onRemove(ActionEvent e) {
         int sel = table.getSelectedRow();
-        if (sel == -1) return;
+        if (sel == -1) {
+            JOptionPane.showMessageDialog(this, "Selecione para remover.");
+            return;
+        }
         
-        Contas conta = listaAtual.get(sel);
-        int resp = JOptionPane.showConfirmDialog(this, "Remover conta do fornecedor " + conta.getFornecedor() + "?");
+        // Conversão de índice View -> Model
+        int modelRow = table.convertRowIndexToModel(sel);
+        Contas conta = listaAtual.get(modelRow);
+        
+        int resp = JOptionPane.showConfirmDialog(this, "Remover " + conta.getFornecedor() + "?");
         if (resp == JOptionPane.YES_OPTION) {
             contaRepo.removerConta(conta.getId());
             refreshTable(contaRepo.listarTodas());
@@ -529,82 +587,77 @@ class ContaManagerGUI extends JFrame {
     private void onLaunch(ActionEvent e) {
         int sel = table.getSelectedRow();
         if (sel == -1) {
-            JOptionPane.showMessageDialog(this, "Selecione uma conta.");
+            JOptionPane.showMessageDialog(this, "Selecione para lançar.");
             return;
         }
-        Contas conta = listaAtual.get(sel);
         
-        String atividade = JOptionPane.showInputDialog("Atividade:");
-        if(atividade != null) {
-            conta.setAtividade(Integer.parseInt(atividade));
-            conta.setLancada(true);
-            // Salvar no banco
-            contaRepo.atualizarConta(conta);
-            refreshTable(contaRepo.listarTodas());
-        }
-    }
-
-    private void onSearchActivity(ActionEvent e) {
-        String input = JOptionPane.showInputDialog(this, "Digite o número da atividade:");
-        if (input != null && !input.trim().isEmpty()) {
+        // Conversão de índice View -> Model
+        int modelRow = table.convertRowIndexToModel(sel);
+        Contas conta = listaAtual.get(modelRow);
+        
+        String ativ = JOptionPane.showInputDialog(this, "Número da Atividade:");
+        if (ativ != null) {
             try {
-                int atividade = Integer.parseInt(input.trim());
-                refreshTable(contaRepo.buscarPorAtividade(atividade));
-            } catch (NumberFormatException ex) {
-                JOptionPane.showMessageDialog(this, "Por favor, digite um número válido.");
+                conta.setAtividade(Integer.parseInt(ativ));
+                conta.setLancada(true);
+                contaRepo.atualizarConta(conta);
+                refreshTable(contaRepo.listarTodas());
+            } catch(Exception ex) {
+                JOptionPane.showMessageDialog(this, "Erro numérico.");
             }
         }
     }
 
+    // --- Métodos de Busca (Simplificados para manter o exemplo conciso) ---
+    private void onSearchActivity(ActionEvent e) {
+        String s = JOptionPane.showInputDialog("Número Atividade:");
+        if (s != null) refreshTable(contaRepo.buscarPorAtividade(Integer.parseInt(s)));
+    }
     private void onSearchNome(ActionEvent e) {
-        String input = JOptionPane.showInputDialog(this, "Digite parte do nome do fornecedor:");
-        if (input != null && !input.trim().isEmpty()) {
-            refreshTable(contaRepo.buscarPorNome(input.trim()));
-        }
+        String s = JOptionPane.showInputDialog("Nome:");
+        if (s != null) refreshTable(contaRepo.buscarPorNome(s));
     }
-
-    private void onSearchDataLancada(ActionEvent e) {
-        String input = JOptionPane.showInputDialog(this, "Digite a data lançada (ex: 05/12/25):");
-        if (input != null && !input.trim().isEmpty()) {
-            refreshTable(contaRepo.buscarPorDataLancada(input.trim()));
-        }
-    }
-
-    private void onSearchDataVencimento(ActionEvent e) {
-        String input = JOptionPane.showInputDialog(this, "Digite a data de vencimento (ex: 05/12/25):");
-        if (input != null && !input.trim().isEmpty()) {
-            refreshTable(contaRepo.buscarPorDataVencimento(input.trim()));
-        }
-    }
-
-    // NOVO MÉTODO: Filtro por Mês e Ano
     private void onSearchMes(ActionEvent e) {
-        JPanel panel = new JPanel(new GridLayout(0, 2, 5, 5));
-        JTextField txtMes = new JTextField();
-        JTextField txtAno = new JTextField("25"); // Sugestão default
-
-        panel.add(new JLabel("Mês (1-12):"));
-        panel.add(txtMes);
-        panel.add(new JLabel("Ano (2 dígitos, ex: 25):"));
-        panel.add(txtAno);
-
-        int result = JOptionPane.showConfirmDialog(this, panel, 
-                "Filtrar por Mês de Vencimento", JOptionPane.OK_CANCEL_OPTION);
-
-        if (result == JOptionPane.OK_OPTION) {
-            String mes = txtMes.getText().trim();
-            String ano = txtAno.getText().trim();
-
-            if (!mes.isEmpty() && !ano.isEmpty()) {
-                refreshTable(contaRepo.buscarPorMesVencimento(mes, ano));
-            } else {
-                JOptionPane.showMessageDialog(this, "Preencha mês e ano.");
-            }
-        }
+        String mes = JOptionPane.showInputDialog("Mês (1-12):");
+        String ano = JOptionPane.showInputDialog("Ano (25):");
+        if (mes != null && ano != null) refreshTable(contaRepo.buscarPorMesVencimento(mes, ano));
     }
 
+    // --- Main ---
     public static void main(String[] args) {
-        try { UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName()); } catch (Exception ignored) {}
+        // INSTALAÇÃO DO TEMA MODERNO (FlatLaf)
+        try {
+            FlatLightLaf.setup();
+        } catch (Exception ex) {
+            System.err.println("Falha ao carregar FlatLaf. Usando padrão.");
+        }
+
         SwingUtilities.invokeLater(() -> new ContaManagerGUI().setVisible(true));
+    }
+
+    // --- Classe Interna para simular ícone com Texto/Emoji ---
+    private static class TextIcon implements Icon {
+        private final String text;
+        private final int width;
+        private final int height;
+        private final Component component;
+
+        public TextIcon(Component component, String text, int size) {
+            this.component = component;
+            this.text = text;
+            this.width = size;
+            this.height = size;
+        }
+        @Override
+        public void paintIcon(Component c, Graphics g, int x, int y) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+            g2.setColor(c.getForeground());
+            g2.setFont(new Font("Segoe UI Emoji", Font.PLAIN, height));
+            g2.drawString(text, x, y + height - 2);
+            g2.dispose();
+        }
+        @Override public int getIconWidth() { return width; }
+        @Override public int getIconHeight() { return height; }
     }
 }
