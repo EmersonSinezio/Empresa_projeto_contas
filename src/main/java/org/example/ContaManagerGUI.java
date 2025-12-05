@@ -14,6 +14,10 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
+import javax.swing.border.CompoundBorder;
+import javax.swing.border.LineBorder;
 
 public class ContaManagerGUI extends JFrame {
     private final ContaRepositorySQLite contaRepo = new ContaRepositorySQLite();
@@ -26,6 +30,8 @@ public class ContaManagerGUI extends JFrame {
 
     // Adicione esse campo na classe
     private JComboBox<String> comboMeses;
+    private JPanel pnlChips; // O container visual das tags
+    private Map<String, Object> filtrosAtivos = new HashMap<>(); // Guarda o estado
 
     public ContaManagerGUI() {
         super("Gerenciador de Contas");
@@ -143,10 +149,19 @@ public class ContaManagerGUI extends JFrame {
         filterPanel.add(btnSearchPeriodo); // Adicionado aqui
         filterPanel.add(btnSearchNome);
 
+        // --- PAINEL DE CHIPS (TAGS) ---
+        pnlChips = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 5));
+        pnlChips.setBorder(BorderFactory.createEmptyBorder(5, 10, 5, 10));
+
         // Painel Topo Geral
         JPanel topContainer = new JPanel(new BorderLayout());
         topContainer.add(toolbar, BorderLayout.NORTH);
-        topContainer.add(filterPanel, BorderLayout.CENTER);
+        
+        JPanel middlePanel = new JPanel(new BorderLayout());
+        middlePanel.add(filterPanel, BorderLayout.NORTH);
+        middlePanel.add(pnlChips, BorderLayout.CENTER);
+        
+        topContainer.add(middlePanel, BorderLayout.CENTER);
 
         getContentPane().setLayout(new BorderLayout());
         getContentPane().add(topContainer, BorderLayout.NORTH);
@@ -173,11 +188,9 @@ public class ContaManagerGUI extends JFrame {
         String mes = String.format("%02d", hoje.getMonthValue());
         String ano = String.format("%02d", hoje.getYear() % 100); // Pega os ultimos 2 digitos do ano (ex: 2025 -> 25)
         
-        List<Contas> contasMes = contaRepo.buscarPorMesVencimento(mes, ano);
-        refreshTable(contasMes);
-        
-        // Exibe um titulo na janela ou console para feedback
-        this.setTitle("Gerenciador de Contas - Exibindo Mês: " + mes + "/" + ano);
+        // Define o filtro inicial e atualiza a interface
+        filtrosAtivos.put("mes_ano", new String[]{mes, ano});
+        atualizarFiltros();
     }
     
     // Método auxiliar para recarregar o combo após cadastrar algo novo
@@ -371,7 +384,7 @@ public class ContaManagerGUI extends JFrame {
     }
 
     private String formatarValor(double valor){
-        java.text.NumberFormat formato = java.text.NumberFormat.getCurrencyInstance(new java.util.Locale("pt","BR"));
+        java.text.NumberFormat formato = java.text.NumberFormat.getCurrencyInstance(java.util.Locale.forLanguageTag("pt-BR"));
         return formato.format(valor);
     }
 
@@ -594,15 +607,25 @@ public class ContaManagerGUI extends JFrame {
         }
     }
 
-    // --- Métodos de Busca (Simplificados para manter o exemplo conciso) ---
+    // --- Métodos de Busca (Atualizados para Chips) ---
     private void onSearchActivity(ActionEvent e) {
         String s = JOptionPane.showInputDialog("Número Atividade:");
-        if (s != null) refreshTable(contaRepo.buscarPorAtividade(Integer.parseInt(s)));
+        if (s != null) {
+            try {
+                filtrosAtivos.put("atividade", Integer.parseInt(s.trim()));
+                atualizarFiltros();
+            } catch (Exception ex) { JOptionPane.showMessageDialog(this, "Número inválido"); }
+        }
     }
+
     private void onSearchNome(ActionEvent e) {
         String s = JOptionPane.showInputDialog("Nome:");
-        if (s != null) refreshTable(contaRepo.buscarPorNome(s));
+        if (s != null && !s.trim().isEmpty()) {
+            filtrosAtivos.put("fornecedor", s.trim());
+            atualizarFiltros();
+        }
     }
+
     private void onSearchMes(ActionEvent e) {
         JPanel panel = new JPanel(new GridLayout(0, 2, 5, 5));
         
@@ -625,8 +648,10 @@ public class ContaManagerGUI extends JFrame {
             if(mes.length() == 1) mes = "0" + mes;
             
             if (!mes.isEmpty() && !ano.isEmpty()) {
-                refreshTable(contaRepo.buscarPorMesVencimento(mes, ano));
-                this.setTitle("Gerenciador de Contas - Filtro Mês: " + mes + "/" + ano);
+                filtrosAtivos.put("mes_ano", new String[]{mes, ano});
+                // Remove conflito com periodo se houver
+                filtrosAtivos.remove("periodo"); 
+                atualizarFiltros();
             }
         }
     }
@@ -662,17 +687,120 @@ public class ContaManagerGUI extends JFrame {
                     return;
                 }
                 
-                List<Contas> filtradas = contaRepo.buscarPorPeriodoVencimento(inicio, fim);
-                
-                refreshTable(filtradas);
-                
-                SimpleDateFormat sdf = new SimpleDateFormat("dd/MM/yy");
-                this.setTitle("Gerenciador - Filtrando por VENCIMENTO: " + sdf.format(inicio) + " até " + sdf.format(fim));
+                filtrosAtivos.put("periodo", new Date[]{inicio, fim});
+                // Remove conflito com mês fixo se houver
+                filtrosAtivos.remove("mes_ano");
+                atualizarFiltros();
                 
             } else {
                 JOptionPane.showMessageDialog(this, "Selecione ambas as datas.");
             }
         }
+    }
+
+    // --- LÓGICA DE CHIPS E BUSCA DINÂMICA ---
+    private void atualizarFiltros() {
+        // A. Limpa visualmente
+        pnlChips.removeAll();
+
+        // B. Botão "Limpar Tudo" (se houver filtros)
+        if (!filtrosAtivos.isEmpty()) {
+            JButton btnClear = new JButton("Limpar tudo");
+            btnClear.putClientProperty("JButton.buttonType", "roundRect"); // FlatLaf style
+            btnClear.setForeground(Color.RED);
+            btnClear.addActionListener(e -> {
+                filtrosAtivos.clear();
+                atualizarFiltros();
+            });
+            pnlChips.add(btnClear);
+        }
+
+        // C. Cria um Chip para cada filtro ativo
+        for (Map.Entry<String, Object> entry : filtrosAtivos.entrySet()) {
+            String tipo = entry.getKey();
+            Object valor = entry.getValue();
+            
+            String textoDisplay = formatarTextoFiltro(tipo, valor);
+            
+            // Cria o painelzinho preto (Chip)
+            JPanel chip = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+            chip.setBackground(Color.BLACK); // Fundo preto como na imagem
+            chip.setBorder(BorderFactory.createEmptyBorder(2, 8, 2, 2));
+            
+            // Arredondar bordas (Truque visual)
+            chip.setBorder(new CompoundBorder(
+                new LineBorder(Color.BLACK, 1, true), // Borda arredondada
+                BorderFactory.createEmptyBorder(2, 5, 2, 5)
+            ));
+
+            JLabel lbl = new JLabel(textoDisplay);
+            lbl.setForeground(Color.WHITE);
+            lbl.setFont(new Font("Segoe UI", Font.BOLD, 12));
+
+            // Botão X pequeno
+            JButton btnClose = new JButton("x");
+            btnClose.setBorderPainted(false);
+            btnClose.setContentAreaFilled(false);
+            btnClose.setForeground(Color.LIGHT_GRAY);
+            btnClose.setMargin(new Insets(0, 0, 0, 0));
+            btnClose.addActionListener(e -> {
+                filtrosAtivos.remove(tipo); // Remove este filtro específico
+                atualizarFiltros(); // Redesenha
+            });
+
+            chip.add(lbl);
+            chip.add(btnClose);
+            pnlChips.add(chip);
+        }
+
+        pnlChips.revalidate();
+        pnlChips.repaint();
+
+        // D. EXECUTA A BUSCA NO BANCO COM TUDO QUE TEM NO MAPA
+        executarBuscaNoBanco();
+    }
+
+    private String formatarTextoFiltro(String tipo, Object valor) {
+        if (tipo.equals("fornecedor")) return "Nome: " + valor;
+        if (tipo.equals("atividade")) return "Ativ: " + valor;
+        if (tipo.equals("mes_ano")) {
+            String[] parts = (String[]) valor;
+            return "Mês: " + parts[0] + "/" + parts[1];
+        }
+        if (tipo.equals("periodo")) {
+            Date[] datas = (Date[]) valor;
+            SimpleDateFormat sdf = new SimpleDateFormat("dd/MM");
+            return sdf.format(datas[0]) + " até " + sdf.format(datas[1]);
+        }
+        return valor.toString();
+    }
+
+    private void executarBuscaNoBanco() {
+        String fNome = (String) filtrosAtivos.get("fornecedor");
+        Integer fAtiv = filtrosAtivos.containsKey("atividade") ? (Integer) filtrosAtivos.get("atividade") : null;
+        
+        String fMes = null;
+        String fAno = null;
+        if (filtrosAtivos.containsKey("mes_ano")) {
+            String[] parts = (String[]) filtrosAtivos.get("mes_ano");
+            fMes = parts[0];
+            fAno = parts[1];
+        }
+
+        Date fInicio = null;
+        Date fFim = null;
+        if (filtrosAtivos.containsKey("periodo")) {
+            Date[] datas = (Date[]) filtrosAtivos.get("periodo");
+            fInicio = datas[0];
+            fFim = datas[1];
+        }
+
+        // Chama o novo método do repositório
+        List<Contas> resultados = contaRepo.buscarDinamica(fNome, fMes, fAno, fInicio, fFim, fAtiv);
+        refreshTable(resultados);
+        
+        // Atualiza titulo
+        this.setTitle("Gerenciador de Contas - " + resultados.size() + " resultados encontrados");
     }
 
     // --- Main ---
@@ -692,10 +820,8 @@ public class ContaManagerGUI extends JFrame {
         private final String text;
         private final int width;
         private final int height;
-        private final Component component;
 
         public TextIcon(Component component, String text, int size) {
-            this.component = component;
             this.text = text;
             this.width = size;
             this.height = size;

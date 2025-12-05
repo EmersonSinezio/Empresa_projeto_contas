@@ -11,8 +11,6 @@ import java.util.stream.Collectors;
 
 public class ContaRepositorySQLite {
     private final DatabaseConnection dbConnection;
-    // Formatador para ler o que está no banco (dd-MM-yy)
-    private static final DateTimeFormatter DB_FMT = DateTimeFormatter.ofPattern("dd-MM-yy");
 
     public ContaRepositorySQLite() {
         this.dbConnection = DatabaseConnection.getInstance();
@@ -234,5 +232,58 @@ public class ContaRepositorySQLite {
             e.printStackTrace();
         }
         return lista;
+    }
+
+    public List<Contas> buscarDinamica(String fornecedor, String mes, String ano, Date dataInicio, Date dataFim, Integer atividade) {
+        StringBuilder sql = new StringBuilder("SELECT * FROM contas WHERE 1=1");
+        List<Object> params = new ArrayList<>();
+
+        // 1. Filtro por Nome (Fornecedor)
+        if (fornecedor != null && !fornecedor.isEmpty()) {
+            sql.append(" AND LOWER(fornecedor) LIKE ?");
+            params.add("%" + fornecedor.toLowerCase() + "%");
+        }
+
+        // 2. Filtro por Mês/Ano (Vencimento Texto)
+        if (mes != null && !mes.isEmpty() && ano != null && !ano.isEmpty()) {
+            sql.append(" AND vencimento LIKE ?");
+            params.add("%-" + mes + "-" + ano);
+        }
+
+        // 3. Filtro por Atividade
+        if (atividade != null && atividade != 0) {
+            sql.append(" AND atividade = ?");
+            params.add(atividade);
+        }
+
+        List<Contas> resultado = new ArrayList<>();
+        
+        try (PreparedStatement pstmt = dbConnection.getConnection().prepareStatement(sql.toString())) {
+            for (int i = 0; i < params.size(); i++) {
+                pstmt.setObject(i + 1, params.get(i));
+            }
+            
+            try (ResultSet rs = pstmt.executeQuery()) {
+                while (rs.next()) {
+                    resultado.add(resultSetToConta(rs));
+                }
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        
+        // 4. Filtro de Período na Memória (Vencimento)
+        if (dataInicio != null && dataFim != null) {
+            LocalDate ldInicio = dataInicio.toInstant().atZone(ZoneId.systemDefault()).toLocalDate();
+            LocalDate ldFim = dataFim.toInstant().atZone(ZoneId.systemDefault()).toLocalDate();
+            
+            return resultado.stream().filter(c -> {
+                LocalDate dataVenc = parseDateRobust(c.getVencimento());
+                if (dataVenc == null) return false;
+                return !dataVenc.isBefore(ldInicio) && !dataVenc.isAfter(ldFim);
+            }).collect(Collectors.toList());
+        }
+
+        return resultado;
     }
 }
