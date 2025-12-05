@@ -17,9 +17,7 @@ public class DatabaseConnection {
     }
 
     public static DatabaseConnection getInstance() {
-        if (instance == null) {
-            instance = new DatabaseConnection();
-        }
+        if (instance == null) instance = new DatabaseConnection();
         return instance;
     }
 
@@ -28,26 +26,30 @@ public class DatabaseConnection {
     }
 
     private void createTableIfNotExists() {
-        // Essa estrutura reflete o arquivo contas.db enviado
+        // Estrutura atualizada conforme seu pedido
         String sql = "CREATE TABLE IF NOT EXISTS contas (" +
                 "id INTEGER PRIMARY KEY AUTOINCREMENT," +
-                "cnpjServico TEXT," +
-                "cnpjFilial TEXT," +
-                "unidade TEXT," +
-                "contaContabil TEXT," +
+                "mes_referencia TEXT," +
+                "conta_contabil TEXT," +
+                "percentual_2024 TEXT," +
+                "valor_reajuste_2024 REAL," +
+                "unidade_gd TEXT," +
+                "cnpj_filial TEXT," +
                 "fornecedor TEXT," +
-                "servico TEXT," +
-                "valorNF REAL," +
-                "centroCusto TEXT," +
-                "valorBoleto REAL," +
-                "dataFaturamento TEXT," +
-                "dataLancada TEXT," +
-                "dataVencimento TEXT," +
-                "lancada INTEGER," + 
-                "vencida INTEGER," +
-                "atividade INTEGER" +
+                "conta TEXT," + // Campo novo 'conta'
+                "servico_produto TEXT," +
+                "valor_nf REAL," +
+                "valor_boleto REAL," +
+                "vencimento TEXT," +
+                "centro_custo TEXT," +
+                "data_faturamento TEXT," +
+                "data_lancamento TEXT," +
+                "lancada INTEGER DEFAULT 0," +
+                "vencida INTEGER DEFAULT 0," +
+                "atividade INTEGER DEFAULT 0," +
+                "PN TEXT" +
                 ");";
-        // Nota: O campo 'PN' do JSON não foi incluído pois não está no arquivo DB original
+
         try (Statement stmt = connection.createStatement()) {
             stmt.execute(sql);
         } catch (SQLException e) {

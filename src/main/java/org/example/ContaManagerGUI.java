@@ -10,6 +10,7 @@ import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.StringSelection;
 import java.awt.event.ActionEvent;
 import java.text.SimpleDateFormat;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
@@ -22,6 +23,9 @@ public class ContaManagerGUI extends JFrame {
     
     // Formatador para converter do JDateChooser para a String do seu DB (dd-MM-yy)
     private final SimpleDateFormat dateFormatDB = new SimpleDateFormat("dd-MM-yy");
+
+    // Adicione esse campo na classe
+    private JComboBox<String> comboMeses;
 
     public ContaManagerGUI() {
         super("Gerenciador de Contas");
@@ -78,24 +82,42 @@ public class ContaManagerGUI extends JFrame {
         JButton btnRemove = criarBotao("Remover", "🗑️", new Color(220, 53, 69)); // Vermelho
         btnRemove.addActionListener(this::onRemove);
 
-        JButton btnRefresh = criarBotao("Atualizar", "🔄", null);
+        JButton btnRefresh = criarBotao("Listar Tudo", "📄", null);
         btnRefresh.addActionListener(e -> refreshTable(contaRepo.listarTodas()));
 
-        JButton btnInfo = criarBotao("Detalhes", "📄", null);
-        btnInfo.addActionListener(this::onShowInfo);
-        
-        JButton btnExit = criarBotao("Sair", "❌", null);
-        btnExit.addActionListener(e -> System.exit(0));
-
-        // Botões de Busca
+        // --- Botões de Busca ---
         JButton btnSearchActivity = new JButton("🔍 Atividade");
         btnSearchActivity.addActionListener(this::onSearchActivity);
 
-        JButton btnSearchMes = new JButton("📅 Mês Venc.");
+        JButton btnSearchMes = new JButton("📅 Mês");
         btnSearchMes.addActionListener(this::onSearchMes);
+
+        // NOVO BOTÃO PERÍODO
+        JButton btnSearchPeriodo = new JButton("🗓️ Período");
+        btnSearchPeriodo.addActionListener(this::onSearchPeriodo);
 
         JButton btnSearchNome = new JButton("🔍 Nome");
         btnSearchNome.addActionListener(this::onSearchNome);
+
+        // --- CRIAÇÃO DO FILTRO DE MÊS ---
+        comboMeses = new JComboBox<>();
+        comboMeses.addItem("Todos"); // Opção padrão
+        
+        // Carrega os meses do banco
+        List<String> mesesDb = contaRepo.listarMesesDisponiveis();
+        for (String m : mesesDb) {
+            comboMeses.addItem(m);
+        }
+
+        // Ação quando trocar o mês no ComboBox
+        comboMeses.addActionListener(e -> {
+            String selecionado = (String) comboMeses.getSelectedItem();
+            if ("Todos".equals(selecionado)) {
+                refreshTable(contaRepo.listarTodas());
+            } else {
+                refreshTable(contaRepo.buscarPorMesReferencia(selecionado));
+            }
+        });
 
         // --- Layout (Toolbar Superior) ---
         JToolBar toolbar = new JToolBar();
@@ -103,18 +125,22 @@ public class ContaManagerGUI extends JFrame {
         toolbar.add(btnAdd);
         toolbar.add(btnLaunch);
         toolbar.addSeparator();
+        
+        // Adiciona o label e o combo na toolbar
+        toolbar.add(new JLabel("  Filtrar Mês: ")); 
+        toolbar.add(comboMeses);
+        
+        toolbar.addSeparator();
         toolbar.add(btnRemove);
         toolbar.add(btnRefresh);
-        toolbar.add(btnInfo);
         toolbar.addSeparator();
-        toolbar.add(Box.createHorizontalGlue()); // Empurra o botão sair para a direita
-        toolbar.add(btnExit);
-
+        
         // --- Painel de Filtros (Abaixo da Toolbar) ---
         JPanel filterPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
         filterPanel.setBorder(BorderFactory.createTitledBorder("Filtros Rápidos"));
         filterPanel.add(btnSearchActivity);
         filterPanel.add(btnSearchMes);
+        filterPanel.add(btnSearchPeriodo); // Adicionado aqui
         filterPanel.add(btnSearchNome);
 
         // Painel Topo Geral
@@ -137,7 +163,38 @@ public class ContaManagerGUI extends JFrame {
             if (!e.getValueIsAdjusting()) updateSelectionSum(statusLabel);
         });
 
-        refreshTable(contaRepo.listarTodas());
+        // --- INICIALIZAÇÃO: Carregar Mês Atual ---
+        carregarMesAtual();
+    }
+    
+    // --- LÓGICA DE INICIALIZAÇÃO ---
+    private void carregarMesAtual() {
+        LocalDate hoje = LocalDate.now();
+        String mes = String.format("%02d", hoje.getMonthValue());
+        String ano = String.format("%02d", hoje.getYear() % 100); // Pega os ultimos 2 digitos do ano (ex: 2025 -> 25)
+        
+        List<Contas> contasMes = contaRepo.buscarPorMesVencimento(mes, ano);
+        refreshTable(contasMes);
+        
+        // Exibe um titulo na janela ou console para feedback
+        this.setTitle("Gerenciador de Contas - Exibindo Mês: " + mes + "/" + ano);
+    }
+    
+    // Método auxiliar para recarregar o combo após cadastrar algo novo
+    private void atualizarComboMeses() {
+        String atual = (String) comboMeses.getSelectedItem();
+        comboMeses.removeAllItems();
+        comboMeses.addItem("Todos");
+        
+        List<String> mesesDb = contaRepo.listarMesesDisponiveis();
+        for (String m : mesesDb) {
+            comboMeses.addItem(m);
+        }
+        
+        // Tenta manter a seleção anterior
+        if (atual != null) {
+            comboMeses.setSelectedItem(atual);
+        }
     }
 
     // --- Método Helper para Criar Botões Modernos ---
@@ -195,7 +252,7 @@ public class ContaManagerGUI extends JFrame {
         addFormRow(panel, gbc, 0, "ID:", txtId, false);
         addFormRow(panel, gbc, 1, "Fornecedor *:", txtFornecedor, true);
         addFormRow(panel, gbc, 2, "Serviço *:", txtServico, true);
-        addFormRow(panel, gbc, 3, "CNPJ Serviço *:", txtCnpjServico, true);
+        addFormRow(panel, gbc, 3, "CNPJ Filial *:", txtCnpjServico, true);
         addFormRow(panel, gbc, 4, "Unidade *:", txtUnidade, true);
         addFormRow(panel, gbc, 5, "Valor NF *:", txtValorNF, true);
         addFormRow(panel, gbc, 6, "Valor Boleto *:", txtValorBoleto, true);
@@ -235,22 +292,22 @@ public class ContaManagerGUI extends JFrame {
             try {
                 Contas novaConta = new Contas();
                 novaConta.setFornecedor(txtFornecedor.getText().trim());
-                novaConta.setServico(txtServico.getText().trim());
-                novaConta.setCnpjServico(txtCnpjServico.getText().trim());
-                novaConta.setUnidade(txtUnidade.getText().trim());
+                novaConta.setServicoProduto(txtServico.getText().trim());
+                novaConta.setCnpjFilial(txtCnpjServico.getText().trim());
+                novaConta.setUnidadeGd(txtUnidade.getText().trim());
                 
                 novaConta.setValorNF(Double.parseDouble(txtValorNF.getText().replace(",", ".")));
                 novaConta.setValorBoleto(Double.parseDouble(txtValorBoleto.getText().replace(",", ".")));
                 
                 // Pegando a data do componente e formatando para String (dd-MM-yy)
                 if(dateVencimento.getDate() != null)
-                    novaConta.setDataVencimento(dateFormatDB.format(dateVencimento.getDate()));
+                    novaConta.setVencimento(dateFormatDB.format(dateVencimento.getDate()));
                 
                 if(dateFaturamento.getDate() != null)
                     novaConta.setDataFaturamento(dateFormatDB.format(dateFaturamento.getDate()));
                 
                 if(dateLancamento.getDate() != null)
-                    novaConta.setDataLancada(dateFormatDB.format(dateLancamento.getDate()));
+                    novaConta.setDataLancamento(dateFormatDB.format(dateLancamento.getDate()));
                 
                 String ativStr = txtAtividade.getText().trim();
                 novaConta.setAtividade(ativStr.isEmpty() ? 0 : Integer.parseInt(ativStr));
@@ -259,6 +316,7 @@ public class ContaManagerGUI extends JFrame {
                 novaConta.setContaContabil(txtContaContabil.getText().trim());
                 
                 contaRepo.adicionarConta(novaConta);
+                atualizarComboMeses(); // Atualiza o combo após adicionar
                 
                 JOptionPane.showMessageDialog(this, "Conta cadastrada com sucesso!");
                 refreshTable(contaRepo.listarTodas());
@@ -338,11 +396,11 @@ public class ContaManagerGUI extends JFrame {
             
             Object[] row = new Object[] {
                     safe(c.getFornecedor()),
-                    safe(c.getServico()),
+                    safe(c.getServicoProduto()),
                     c.getValorNF(),      // Passando Double puro
                     c.getValorBoleto(),  // Passando Double puro
-                    formatarDataUI(c.getDataVencimento()),
-                    formatarDataUI(c.getDataLancada()),
+                    formatarDataUI(c.getVencimento()),
+                    formatarDataUI(c.getDataLancamento()),
                     c.getAtividade()     // Passando Integer puro
             };
             tableModel.addRow(row);
@@ -372,15 +430,15 @@ public class ContaManagerGUI extends JFrame {
 
         panel.add(createInfoLabel("ID (Banco):", String.valueOf(conta.getId())));
         panel.add(createInfoLabel("Fornecedor:", conta.getFornecedor()));
-        panel.add(createInfoLabel("Serviço:", conta.getServico()));
-        panel.add(createInfoLabel("CNPJ Serviço:", conta.getCnpjServico()));
-        panel.add(createInfoLabel("Unidade:", conta.getUnidade()));
+        panel.add(createInfoLabel("Serviço:", conta.getServicoProduto()));
+        panel.add(createInfoLabel("CNPJ Filial:", conta.getCnpjFilial()));
+        panel.add(createInfoLabel("Unidade:", conta.getUnidadeGd()));
         panel.add(createInfoLabel("Valor NF:", formatarValor(conta.getValorNF())));
         panel.add(createInfoLabel("Valor Boleto:", formatarValor(conta.getValorBoleto())));
         
         panel.add(createInfoLabel("Data Faturamento:", formatarDataUI(conta.getDataFaturamento())));
-        panel.add(createInfoLabel("Data Vencimento:", formatarDataUI(conta.getDataVencimento())));
-        panel.add(createInfoLabel("Data Lançada:", formatarDataUI(conta.getDataLancada())));
+        panel.add(createInfoLabel("Data Vencimento:", formatarDataUI(conta.getVencimento())));
+        panel.add(createInfoLabel("Data Lançada:", formatarDataUI(conta.getDataLancamento())));
         
         panel.add(createInfoLabel("Atividade:", String.valueOf(conta.getAtividade())));
         
@@ -523,7 +581,7 @@ public class ContaManagerGUI extends JFrame {
                 // Se usuário não escolheu data, usa a data atual (que já vem setada no componente, mas garantindo)
                 Date dataLanc = dateLancamento.getDate();
                 if (dataLanc == null) dataLanc = new Date();
-                conta.setDataLancada(dateFormatDB.format(dataLanc));
+                conta.setDataLancamento(dateFormatDB.format(dataLanc));
 
                 conta.setLancada(true);
                 contaRepo.atualizarConta(conta);
@@ -546,9 +604,75 @@ public class ContaManagerGUI extends JFrame {
         if (s != null) refreshTable(contaRepo.buscarPorNome(s));
     }
     private void onSearchMes(ActionEvent e) {
-        String mes = JOptionPane.showInputDialog("Mês (1-12):");
-        String ano = JOptionPane.showInputDialog("Ano (25):");
-        if (mes != null && ano != null) refreshTable(contaRepo.buscarPorMesVencimento(mes, ano));
+        JPanel panel = new JPanel(new GridLayout(0, 2, 5, 5));
+        
+        // Pega data atual para sugerir
+        LocalDate hoje = LocalDate.now();
+        JTextField txtMes = new JTextField(String.format("%02d", hoje.getMonthValue()));
+        JTextField txtAno = new JTextField(String.format("%02d", hoje.getYear() % 100));
+
+        panel.add(new JLabel("Mês (1-12):")); panel.add(txtMes);
+        panel.add(new JLabel("Ano (Ex: 25):")); panel.add(txtAno);
+
+        int result = JOptionPane.showConfirmDialog(this, panel, 
+                "Filtrar por Mês", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+
+        if (result == JOptionPane.OK_OPTION) {
+            String mes = txtMes.getText().trim();
+            String ano = txtAno.getText().trim();
+            
+            // Garante formato 2 digitos
+            if(mes.length() == 1) mes = "0" + mes;
+            
+            if (!mes.isEmpty() && !ano.isEmpty()) {
+                refreshTable(contaRepo.buscarPorMesVencimento(mes, ano));
+                this.setTitle("Gerenciador de Contas - Filtro Mês: " + mes + "/" + ano);
+            }
+        }
+    }
+
+    // NOVO: Busca por Período de Vencimento
+    private void onSearchPeriodo(ActionEvent e) {
+        JPanel panel = new JPanel(new GridLayout(0, 2, 5, 5));
+        
+        JDateChooser dataInicio = new JDateChooser();
+        JDateChooser dataFim = new JDateChooser();
+        
+        // Define formato visual
+        dataInicio.setDateFormatString("dd/MM/yyyy");
+        dataFim.setDateFormatString("dd/MM/yyyy");
+        
+        // Define data atual como sugestão
+        dataInicio.setDate(new Date());
+        dataFim.setDate(new Date());
+
+        panel.add(new JLabel("Data Início:")); panel.add(dataInicio);
+        panel.add(new JLabel("Data Fim:")); panel.add(dataFim);
+
+        int result = JOptionPane.showConfirmDialog(this, panel, 
+                "Filtrar por DATA DE VENCIMENTO", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+
+        if (result == JOptionPane.OK_OPTION) {
+            Date inicio = dataInicio.getDate();
+            Date fim = dataFim.getDate();
+
+            if (inicio != null && fim != null) {
+                if (inicio.after(fim)) {
+                    JOptionPane.showMessageDialog(this, "A data de início não pode ser maior que a data fim.", "Erro", JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+                
+                List<Contas> filtradas = contaRepo.buscarPorPeriodoVencimento(inicio, fim);
+                
+                refreshTable(filtradas);
+                
+                SimpleDateFormat sdf = new SimpleDateFormat("dd/MM/yy");
+                this.setTitle("Gerenciador - Filtrando por VENCIMENTO: " + sdf.format(inicio) + " até " + sdf.format(fim));
+                
+            } else {
+                JOptionPane.showMessageDialog(this, "Selecione ambas as datas.");
+            }
+        }
     }
 
     // --- Main ---
