@@ -13,6 +13,12 @@ import java.util.stream.Collectors;
 public class ContaRepositorySQLite {
     private final DatabaseConnection dbConnection;
 
+    // Adicione esta constante no topo da classe ou dentro do método
+    private static final String[] MESES_ABREV = {
+        "JAN", "FEV", "MAR", "ABR", "MAI", "JUN", 
+        "JUL", "AGO", "SET", "OUT", "NOV", "DEZ"
+    };
+
     public ContaRepositorySQLite() {
         this.dbConnection = DatabaseConnection.getInstance();
     }
@@ -165,19 +171,54 @@ public class ContaRepositorySQLite {
 
     public List<Contas> buscarPorMesVencimento(String mes, String ano) {
         List<Contas> lista = new ArrayList<>();
-        String sql = "SELECT * FROM contas WHERE vencimento LIKE ?"; 
+        
+        // Garante que o mês tenha 2 dígitos (ex: "1" vira "01")
+        if (mes.length() == 1) mes = "0" + mes;
+        
+        // Prepara as variações de ano (2 dígitos e 4 dígitos)
+        String anoCurto = ano.length() == 4 ? ano.substring(2) : ano; // ex: "25"
+        String anoLongo = ano.length() == 2 ? "20" + ano : ano;       // ex: "2025"
+
+        // SQL que busca TODAS as variações possíveis de formatação
+        // 1. %-12-25
+        // 2. %/12/25
+        // 3. %-12-2025
+        // 4. %/12/2025
+        String sql = "SELECT * FROM contas WHERE " +
+                     "vencimento LIKE ? OR " +
+                     "vencimento LIKE ? OR " +
+                     "vencimento LIKE ? OR " +
+                     "vencimento LIKE ?";
+
         try (PreparedStatement pstmt = dbConnection.getConnection().prepareStatement(sql)) {
-            pstmt.setString(1, "%-" + mes + "-" + ano); 
+            
+            // Variação 1: Traço + Ano Curto (ex: 05-12-25)
+            pstmt.setString(1, "%-" + mes + "-" + anoCurto);
+            
+            // Variação 2: Barra + Ano Curto (ex: 05/12/25)
+            pstmt.setString(2, "%/" + mes + "/" + anoCurto);
+            
+            // Variação 3: Traço + Ano Longo (ex: 05-12-2025)
+            pstmt.setString(3, "%-" + mes + "-" + anoLongo);
+            
+            // Variação 4: Barra + Ano Longo (ex: 05/12/2025)
+            pstmt.setString(4, "%/" + mes + "/" + anoLongo);
+
             try (ResultSet rs = pstmt.executeQuery()) {
-                while (rs.next()) lista.add(resultSetToConta(rs));
+                while (rs.next()) {
+                    lista.add(resultSetToConta(rs));
+                }
             }
-        } catch (SQLException e) { e.printStackTrace(); }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        
+        // Log para você ver no console o que está acontecendo
+        System.out.println("Busca Mes " + mes + "/" + ano + " encontrou " + lista.size() + " contas.");
+        
         return lista;
     }
 
-    /**
-     * NOVO MÉTODO: Filtra por período de VENCIMENTO com parser robusto.
-     */
     public List<Contas> buscarPorPeriodoVencimento(Date inicio, Date fim) {
         List<Contas> todas = listarTodas();
 
@@ -297,5 +338,107 @@ public class ContaRepositorySQLite {
         }
 
         return resultado;
+    }
+
+    public void replicarContasParaProximoMes(String mesOrigem, String anoOrigem) {
+        // Normaliza ano para 4 dígitos para busca por mes_referencia (caso precise)
+        String anoBusca = anoOrigem;
+        if (anoBusca.length() == 2) anoBusca = "20" + anoBusca;
+        
+        // Tenta buscar as contas de origem. 
+        // Nota: Se suas contas atuais estão salvas como "12/25" ou "DEZ_25", 
+        // a busca tem que bater com o que está no banco.
+        // O código abaixo tenta buscar por vencimento se não achar por referência.
+        
+        // 1. Busca as contas do mês de origem
+        List<Contas> contasOrigem = buscarPorMesVencimento(mesOrigem, anoOrigem);
+        
+        // Se a lista vier vazia, pode ser que você esteja tentando buscar pelo mes_referencia antigo (ex: JAN_25)
+        if (contasOrigem.isEmpty()) {
+             // Tenta construir a string JAN_25 para buscar
+             try {
+                 int mIdx = Integer.parseInt(mesOrigem) - 1;
+                 if (mIdx >= 0 && mIdx < 12) {
+                     String refAntiga = MESES_ABREV[mIdx] + "_" + anoOrigem;
+                     contasOrigem = buscarPorMesReferencia(refAntiga);
+                 }
+             } catch (Exception ignored) {}
+        }
+        
+        // --- CORREÇÃO 1: REMOVIDO O FILTRO .filter(Contas::isLancada) ---
+        // Agora ele copia TODAS as contas encontradas, não só as pagas.
+        
+        if (contasOrigem.isEmpty()) {
+            throw new RuntimeException("Não foram encontradas contas no mês " + mesOrigem + "/" + anoOrigem + " para copiar.");
+        }
+
+        // 2. Calcula qual é o próximo mês e ano
+        int m = Integer.parseInt(mesOrigem);
+        int a = Integer.parseInt(anoOrigem);
+        
+        // Incrementa mês
+        m++;
+        if (m > 12) {
+            m = 1;
+            a++;
+        }
+        
+        // --- CORREÇÃO 2: FORMATAR COMO JAN_26 ---
+        String nomeMes = MESES_ABREV[m - 1]; // Array é 0-based (0 = JAN)
+        String proximoAnoStr = String.format("%02d", a); // Garante 2 dígitos (ex: 26)
+        
+        String novoMesReferencia = nomeMes + "_" + proximoAnoStr; // Gera JAN_26
+
+        // 3. Itera e cria as cópias
+        int count = 0;
+        for (Contas origem : contasOrigem) {
+            Contas nova = new Contas();
+            
+            // --- CÓPIA DOS DADOS FIXOS ---
+            nova.setFornecedor(origem.getFornecedor());
+            nova.setServicoProduto(origem.getServicoProduto());
+            nova.setConta(origem.getConta());
+            nova.setCnpjFilial(origem.getCnpjFilial());
+            nova.setUnidadeGd(origem.getUnidadeGd());
+            nova.setCentroCusto(origem.getCentroCusto());
+            nova.setContaContabil(origem.getContaContabil());
+            nova.setPercentual2024(origem.getPercentual2024());
+            nova.setValorReajuste2024(origem.getValorReajuste2024());
+            
+            // Mantém os valores
+            nova.setValorNF(origem.getValorNF());
+            nova.setValorBoleto(origem.getValorBoleto());
+
+            // --- ATUALIZAÇÃO DE DATAS ---
+            nova.setMesReferencia(novoMesReferencia); // Aqui vai o JAN_26
+            
+            // Calcula nova data de vencimento (Mês + 1)
+            String vencOrigem = origem.getVencimento(); // dd-MM-yy
+            if (vencOrigem != null && !vencOrigem.isEmpty()) {
+                try {
+                    // Parse usando LocalDate (formato do banco dd-MM-yy)
+                    DateTimeFormatter DB_FMT = DateTimeFormatter.ofPattern("dd-MM-yy");
+                    LocalDate dataVenc = LocalDate.parse(vencOrigem, DB_FMT);
+                    LocalDate novaDataVenc = dataVenc.plusMonths(1);
+                    nova.setVencimento(novaDataVenc.format(DB_FMT));
+                } catch (Exception e) {
+                    nova.setVencimento(""); 
+                }
+            }
+
+            // --- ZERAR CAMPOS ---
+            nova.setDataFaturamento(null);
+            nova.setDataLancamento(null);
+            nova.setAtividade(0);
+            nova.setLancada(false);
+            nova.setVencida(false);
+            nova.setPN(""); 
+
+            // Salva a nova conta
+            adicionarConta(nova);
+            count++;
+        }
+        
+        System.out.println("Copiadas " + count + " contas para " + novoMesReferencia);
     }
 }

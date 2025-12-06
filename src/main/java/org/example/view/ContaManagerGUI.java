@@ -163,6 +163,12 @@ public class ContaManagerGUI extends JFrame {
         filterPanel.add(btnSearchActivity);
         filterPanel.add(btnSearchMes);
         filterPanel.add(btnSearchPeriodo); // Adicionado aqui
+        
+        // NOVO BOTÃO PROXIMO MÊS
+        JButton btnProximoMes = new JButton("➡️ Próximo Mês");
+        btnProximoMes.addActionListener(this::onProximoMes);
+        filterPanel.add(btnProximoMes);
+        
         filterPanel.add(btnSearchNome);
 
         // --- PAINEL DE CHIPS (TAGS) ---
@@ -838,6 +844,59 @@ public class ContaManagerGUI extends JFrame {
         
         // Atualiza titulo
         this.setTitle("Gerenciador de Contas - " + resultados.size() + " resultados encontrados");
+    }
+
+
+
+    private void onProximoMes(ActionEvent e) {
+        JPanel panel = new JPanel(new GridLayout(0, 2, 5, 5));
+        
+        // Sugere o mês atual como origem
+        LocalDate hoje = LocalDate.now();
+        JTextField txtMesOrigem = new JTextField(String.format("%02d", hoje.getMonthValue()));
+        JTextField txtAnoOrigem = new JTextField(String.format("%02d", hoje.getYear() % 100)); // Ano 2 dígitos
+
+        panel.add(new JLabel("Copiar do Mês (Origem):")); panel.add(txtMesOrigem);
+        panel.add(new JLabel("Do Ano (Origem):")); panel.add(txtAnoOrigem);
+        
+        panel.add(new JLabel("<html><i>Isso criará contas para o<br>mês seguinte automaticamente.</i></html>"));
+
+        int result = JOptionPane.showConfirmDialog(this, panel, 
+                "Gerar Próximo Mês", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+
+        if (result == JOptionPane.OK_OPTION) {
+            String mes = txtMesOrigem.getText().trim();
+            String ano = txtAnoOrigem.getText().trim();
+            
+            if (mes.isEmpty() || ano.isEmpty()) {
+                JOptionPane.showMessageDialog(this, "Informe mês e ano de origem.");
+                return;
+            }
+
+            try {
+                // Chama o repositório
+                contaRepo.replicarContasParaProximoMes(mes, ano);
+                
+                // Calcula qual foi o mês gerado apenas para mostrar na mensagem
+                int m = Integer.parseInt(mes) + 1;
+                int a = Integer.parseInt(ano);
+                if (m > 12) { m = 1; a++; }
+                String gerado = String.format("%02d/%02d", m, a);
+
+                JOptionPane.showMessageDialog(this, 
+                    "Sucesso! Contas de " + gerado + " foram geradas com base em " + mes + "/" + ano + ".");
+                
+                // Atualiza a tabela mostrando o mês NOVO gerado
+                refreshTable(contaRepo.buscarPorMesVencimento(String.format("%02d", m), String.format("%02d", a)));
+                
+                // Atualiza o combo de meses se você estiver usando aquele filtro de combobox
+                atualizarComboMeses(); 
+
+            } catch (Exception ex) {
+                ex.printStackTrace();
+                JOptionPane.showMessageDialog(this, "Erro ao gerar: " + ex.getMessage(), "Erro", JOptionPane.ERROR_MESSAGE);
+            }
+        }
     }
 
     // --- NOVO MÉTODO DE EXPORTAÇÃO ---
