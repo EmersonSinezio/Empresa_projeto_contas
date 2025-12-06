@@ -1,5 +1,6 @@
-package org.example;
+package org.example.repository;
 
+import org.example.model.Contas;
 import java.sql.*;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -234,17 +235,20 @@ public class ContaRepositorySQLite {
         return lista;
     }
 
-    public List<Contas> buscarDinamica(String fornecedor, String mes, String ano, Date dataInicio, Date dataFim, Integer atividade) {
+    public List<Contas> buscarDinamica(String fornecedor, String mes, String ano, 
+                                       Date dataInicio, Date dataFim, String tipoData, 
+                                       Integer atividade) {
+        
         StringBuilder sql = new StringBuilder("SELECT * FROM contas WHERE 1=1");
         List<Object> params = new ArrayList<>();
 
-        // 1. Filtro por Nome (Fornecedor)
+        // 1. Filtro por Nome
         if (fornecedor != null && !fornecedor.isEmpty()) {
             sql.append(" AND LOWER(fornecedor) LIKE ?");
             params.add("%" + fornecedor.toLowerCase() + "%");
         }
 
-        // 2. Filtro por Mês/Ano (Vencimento Texto)
+        // 2. Filtro por Mês/Ano (Vencimento Texto - Filtro Rápido)
         if (mes != null && !mes.isEmpty() && ano != null && !ano.isEmpty()) {
             sql.append(" AND vencimento LIKE ?");
             params.add("%-" + mes + "-" + ano);
@@ -262,7 +266,6 @@ public class ContaRepositorySQLite {
             for (int i = 0; i < params.size(); i++) {
                 pstmt.setObject(i + 1, params.get(i));
             }
-            
             try (ResultSet rs = pstmt.executeQuery()) {
                 while (rs.next()) {
                     resultado.add(resultSetToConta(rs));
@@ -272,15 +275,24 @@ public class ContaRepositorySQLite {
             e.printStackTrace();
         }
         
-        // 4. Filtro de Período na Memória (Vencimento)
-        if (dataInicio != null && dataFim != null) {
+        // 4. FILTRO DE PERÍODO NA MEMÓRIA (COM SELEÇÃO DE TIPO)
+        if (dataInicio != null && dataFim != null && tipoData != null) {
             LocalDate ldInicio = dataInicio.toInstant().atZone(ZoneId.systemDefault()).toLocalDate();
             LocalDate ldFim = dataFim.toInstant().atZone(ZoneId.systemDefault()).toLocalDate();
             
             return resultado.stream().filter(c -> {
-                LocalDate dataVenc = parseDateRobust(c.getVencimento());
-                if (dataVenc == null) return false;
-                return !dataVenc.isBefore(ldInicio) && !dataVenc.isAfter(ldFim);
+                String dataStr = null;
+                if (tipoData.contains("Vencimento")) {
+                    dataStr = c.getVencimento();
+                } else if (tipoData.contains("Faturamento")) {
+                    dataStr = c.getDataFaturamento();
+                } else if (tipoData.contains("Lançamento")) {
+                    dataStr = c.getDataLancamento();
+                }
+
+                LocalDate d = parseDateRobust(dataStr);
+                if (d == null) return false;
+                return !d.isBefore(ldInicio) && !d.isAfter(ldFim);
             }).collect(Collectors.toList());
         }
 

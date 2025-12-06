@@ -1,4 +1,4 @@
-package org.example;
+package org.example.test;
 
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -7,6 +7,8 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.stream.Collectors;
+import org.example.model.Contas;
+import org.example.repository.ContaRepositorySQLite;
 
 public class TestFilter {
     private static final DateTimeFormatter DB_FMT = DateTimeFormatter.ofPattern("dd-MM-yy");

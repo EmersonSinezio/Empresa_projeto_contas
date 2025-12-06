@@ -1,23 +1,33 @@
-package org.example;
+package org.example.view;
+
+import org.example.model.Contas;
+import org.example.repository.ContaRepositorySQLite;
+import org.example.util.ExcelExporter;
 
 import com.formdev.flatlaf.FlatLightLaf;
 import com.toedter.calendar.JDateChooser;
 
 import javax.swing.*;
+import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
+import javax.swing.table.TableRowSorter;
 import java.awt.*;
 import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.StringSelection;
 import java.awt.event.ActionEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.text.DecimalFormat;
+import java.text.NumberFormat;
+import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.time.LocalDate;
-import java.util.ArrayList;
-import java.util.Date;
+import java.util.*;
 import java.util.List;
-import java.util.Map;
-import java.util.HashMap;
 import javax.swing.border.CompoundBorder;
 import javax.swing.border.LineBorder;
+import javax.swing.filechooser.FileNameExtensionFilter;
+import java.io.File;
 
 public class ContaManagerGUI extends JFrame {
     private final ContaRepositorySQLite contaRepo = new ContaRepositorySQLite();
@@ -125,6 +135,11 @@ public class ContaManagerGUI extends JFrame {
             }
         });
 
+        // --- CRIE O BOTÃO NA ÁREA DE BOTÕES ---
+        // Usando uma cor verde para remeter ao Excel
+        JButton btnExport = criarBotao("Exportar Excel", "📊", new Color(33, 115, 70));
+        btnExport.addActionListener(this::onExportExcel);
+
         // --- Layout (Toolbar Superior) ---
         JToolBar toolbar = new JToolBar();
         toolbar.setFloatable(false);
@@ -139,6 +154,7 @@ public class ContaManagerGUI extends JFrame {
         toolbar.addSeparator();
         toolbar.add(btnRemove);
         toolbar.add(btnRefresh);
+        toolbar.add(btnExport); // <--- ADICIONE AQUI
         toolbar.addSeparator();
         
         // --- Painel de Filtros (Abaixo da Toolbar) ---
@@ -660,38 +676,46 @@ public class ContaManagerGUI extends JFrame {
     private void onSearchPeriodo(ActionEvent e) {
         JPanel panel = new JPanel(new GridLayout(0, 2, 5, 5));
         
+        // Configuração dos Calendários
         JDateChooser dataInicio = new JDateChooser();
         JDateChooser dataFim = new JDateChooser();
-        
-        // Define formato visual
         dataInicio.setDateFormatString("dd/MM/yyyy");
         dataFim.setDateFormatString("dd/MM/yyyy");
-        
-        // Define data atual como sugestão
-        dataInicio.setDate(new Date());
+        dataInicio.setDate(new Date()); // Data atual como padrão
         dataFim.setDate(new Date());
 
-        panel.add(new JLabel("Data Início:")); panel.add(dataInicio);
-        panel.add(new JLabel("Data Fim:")); panel.add(dataFim);
+        // O Novo Seletor de Tipo de Data
+        String[] tipos = {"Data de Vencimento", "Data de Faturamento", "Data de Lançamento"};
+        JComboBox<String> comboTipo = new JComboBox<>(tipos);
+        comboTipo.setSelectedIndex(0); // Padrão: Vencimento
+
+        panel.add(new JLabel("Filtrar por:")); 
+        panel.add(comboTipo);
+        panel.add(new JLabel("Data Início:")); 
+        panel.add(dataInicio);
+        panel.add(new JLabel("Data Fim:")); 
+        panel.add(dataFim);
 
         int result = JOptionPane.showConfirmDialog(this, panel, 
-                "Filtrar por DATA DE VENCIMENTO", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+                "Filtrar por Período", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
 
         if (result == JOptionPane.OK_OPTION) {
             Date inicio = dataInicio.getDate();
             Date fim = dataFim.getDate();
+            String tipoSelecionado = (String) comboTipo.getSelectedItem();
 
             if (inicio != null && fim != null) {
                 if (inicio.after(fim)) {
-                    JOptionPane.showMessageDialog(this, "A data de início não pode ser maior que a data fim.", "Erro", JOptionPane.ERROR_MESSAGE);
+                    JOptionPane.showMessageDialog(this, "Data início não pode ser maior que data fim.", "Erro", JOptionPane.ERROR_MESSAGE);
                     return;
                 }
                 
-                filtrosAtivos.put("periodo", new Date[]{inicio, fim});
+                // Guardamos agora 3 coisas: Início, Fim e o Tipo da data
+                filtrosAtivos.put("periodo", new Object[]{inicio, fim, tipoSelecionado});
+                
                 // Remove conflito com mês fixo se houver
                 filtrosAtivos.remove("mes_ano");
                 atualizarFiltros();
-                
             } else {
                 JOptionPane.showMessageDialog(this, "Selecione ambas as datas.");
             }
@@ -763,14 +787,24 @@ public class ContaManagerGUI extends JFrame {
     private String formatarTextoFiltro(String tipo, Object valor) {
         if (tipo.equals("fornecedor")) return "Nome: " + valor;
         if (tipo.equals("atividade")) return "Ativ: " + valor;
+        
         if (tipo.equals("mes_ano")) {
             String[] parts = (String[]) valor;
-            return "Mês: " + parts[0] + "/" + parts[1];
+            return "Mês Ref: " + parts[0] + "/" + parts[1];
         }
+        
         if (tipo.equals("periodo")) {
-            Date[] datas = (Date[]) valor;
+            Object[] params = (Object[]) valor;
+            Date d1 = (Date) params[0];
+            Date d2 = (Date) params[1];
+            String tipoData = (String) params[2];
+            
+            // Simplifica o texto para caber no botão (ex: "Vencimento" -> "Venc")
+            String labelCurta = tipoData.contains("Vencimento") ? "Venc" : 
+                                tipoData.contains("Faturamento") ? "Fat" : "Lanc";
+                                
             SimpleDateFormat sdf = new SimpleDateFormat("dd/MM");
-            return sdf.format(datas[0]) + " até " + sdf.format(datas[1]);
+            return labelCurta + ": " + sdf.format(d1) + " até " + sdf.format(d2);
         }
         return valor.toString();
     }
@@ -789,18 +823,99 @@ public class ContaManagerGUI extends JFrame {
 
         Date fInicio = null;
         Date fFim = null;
+        String fTipoData = null; // Nova variável
+
         if (filtrosAtivos.containsKey("periodo")) {
-            Date[] datas = (Date[]) filtrosAtivos.get("periodo");
-            fInicio = datas[0];
-            fFim = datas[1];
+            Object[] params = (Object[]) filtrosAtivos.get("periodo");
+            fInicio = (Date) params[0];
+            fFim = (Date) params[1];
+            fTipoData = (String) params[2]; // Recupera o tipo escolhido
         }
 
-        // Chama o novo método do repositório
-        List<Contas> resultados = contaRepo.buscarDinamica(fNome, fMes, fAno, fInicio, fFim, fAtiv);
+        // Passamos o novo parâmetro fTipoData para o repositório
+        List<Contas> resultados = contaRepo.buscarDinamica(fNome, fMes, fAno, fInicio, fFim, fTipoData, fAtiv);
         refreshTable(resultados);
         
         // Atualiza titulo
         this.setTitle("Gerenciador de Contas - " + resultados.size() + " resultados encontrados");
+    }
+
+    // --- NOVO MÉTODO DE EXPORTAÇÃO ---
+    private void onExportExcel(ActionEvent e) {
+        // 1. Pergunta o Tipo de Relatório
+        String[] options = {"Todo o Período", "Selecionar Datas", "Cancelar"};
+        int choice = JOptionPane.showOptionDialog(this, 
+                "Deseja extrair o relatório de qual período?", 
+                "Exportar para Excel",
+                JOptionPane.DEFAULT_OPTION, 
+                JOptionPane.QUESTION_MESSAGE, 
+                null, options, options[0]);
+
+        if (choice == 2 || choice == -1) return; // Cancelou
+
+        List<Contas> dadosParaExportar;
+
+        // 2. Lógica de Seleção de Dados
+        if (choice == 0) {
+            // Todo o período
+            dadosParaExportar = contaRepo.listarTodas();
+        } else {
+            // Selecionar Datas (Reaproveita lógica do JDateChooser)
+            JPanel panel = new JPanel(new GridLayout(0, 2, 5, 5));
+            JDateChooser dataInicio = new JDateChooser(new Date());
+            JDateChooser dataFim = new JDateChooser(new Date());
+            dataInicio.setDateFormatString("dd/MM/yyyy");
+            dataFim.setDateFormatString("dd/MM/yyyy");
+
+            panel.add(new JLabel("Data Início:")); panel.add(dataInicio);
+            panel.add(new JLabel("Data Fim:")); panel.add(dataFim);
+
+            int resDate = JOptionPane.showConfirmDialog(this, panel, 
+                    "Defina o Período (Vencimento)", JOptionPane.OK_CANCEL_OPTION);
+            
+            if (resDate != JOptionPane.OK_OPTION) return;
+            
+            if (dataInicio.getDate() == null || dataFim.getDate() == null) {
+                JOptionPane.showMessageDialog(this, "Datas inválidas.");
+                return;
+            }
+
+            // Busca usando o método que já criamos no repositório
+            dadosParaExportar = contaRepo.buscarPorPeriodoVencimento(dataInicio.getDate(), dataFim.getDate());
+        }
+
+        if (dadosParaExportar.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "Nenhum dado encontrado para exportar neste período.");
+            return;
+        }
+
+        // 3. Escolher onde Salvar
+        JFileChooser fileChooser = new JFileChooser();
+        fileChooser.setDialogTitle("Salvar Relatório Excel");
+        fileChooser.setFileFilter(new FileNameExtensionFilter("Arquivos Excel (*.xlsx)", "xlsx"));
+        fileChooser.setSelectedFile(new File("Relatorio_Contas.xlsx"));
+
+        int userSelection = fileChooser.showSaveDialog(this);
+
+        if (userSelection == JFileChooser.APPROVE_OPTION) {
+            File fileToSave = fileChooser.getSelectedFile();
+            try {
+                // Chama nossa classe auxiliar
+                ExcelExporter.exportarParaExcel(dadosParaExportar, fileToSave.getAbsolutePath());
+                
+                JOptionPane.showMessageDialog(this, 
+                    "Relatório gerado com sucesso!\nSalvo em: " + fileToSave.getAbsolutePath());
+                    
+                // Opcional: Abrir o arquivo automaticamente
+                try {
+                    java.awt.Desktop.getDesktop().open(new File(fileToSave.getAbsolutePath() + (fileToSave.getName().endsWith(".xlsx") ? "" : ".xlsx")));
+                } catch (Exception ignored) {}
+
+            } catch (Exception ex) {
+                ex.printStackTrace();
+                JOptionPane.showMessageDialog(this, "Erro ao gerar Excel: " + ex.getMessage(), "Erro", JOptionPane.ERROR_MESSAGE);
+            }
+        }
     }
 
     // --- Main ---
